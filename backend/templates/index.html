@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live Traffic Monitor</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --panel-bg: #ffffff;
+            --text-color: #333;
+            --text-secondary: #666;
+            --border-color: #e0e0e0;
+            --accent-color: #007bff;
+            --accent-hover: #0056b3;
+            --shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+            --border-radius: 12px;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            color: var(--text-color);
+        }
+        #map {
+            height: 100%;
+            flex-grow: 1;
+            box-shadow: var(--shadow);
+        }
+        #sidebar {
+            width: 380px;
+            padding: 24px;
+            background-color: var(--panel-bg);
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            overflow-y: auto;
+        }
+        .panel {
+            background: var(--panel-bg);
+            border-radius: var(--border-radius);
+            border: 1px solid var(--border-color);
+            padding: 20px;
+        }
+        .panel h2 {
+            margin: 0 0 16px 0;
+            font-size: 18px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 12px;
+        }
+        #vehicle-list ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        #vehicle-list li {
+            padding: 12px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: background-color 0.2s;
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+        #vehicle-list li:hover {
+            background-color: #f8f9fa;
+        }
+        #vehicle-list li.selected {
+            background-color: var(--accent-color);
+            color: white;
+        }
+        #vehicle-details-content p {
+            margin: 0 0 12px 0;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+        #vehicle-details-content strong {
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        .detail-placeholder {
+            color: #999;
+            font-style: italic;
+        }
+        .custom-bus-marker {
+            width: 32px !important;
+            height: 32px !important;
+            border-radius: 50%;
+            background-color: var(--accent-color);
+            border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .playback-marker {
+             background-color: #28a745; /* Green for playback */
+        }
+        /* Playback Controls Styling */
+        #playback-controls select, #playback-controls input, #playback-controls button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        #playback-controls button {
+            background-color: var(--accent-color);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: background-color 0.2s;
+        }
+        #playback-controls button:hover {
+            background-color: var(--accent-hover);
+        }
+        #playback-controls button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #playback-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #ddd;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity .2s;
+            border-radius: 4px;
+        }
+        #playback-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: var(--accent-color);
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        #playback-info {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-align: center;
+            min-height: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div class="panel" id="vehicle-list">
+            <h2>Active Vehicles</h2>
+            <ul id="vehicles-ul"></ul>
+        </div>
+        <div class="panel" id="vehicle-details">
+            <h2>Vehicle Details</h2>
+            <div id="vehicle-details-content">
+                <p class="detail-placeholder">Click a vehicle on the map or list to see details.</p>
+            </div>
+        </div>
+        <div class="panel" id="playback-controls">
+            <h2>Historical Playback</h2>
+            <select id="history-vehicle-select">
+                <option value="">Select a Vehicle</option>
+            </select>
+            <input type="date" id="history-date-picker">
+            <button id="play-button">Play Route</button>
+            <button id="stop-button" style="display:none; background-color: #dc3545;">Return to Live</button>
+            <input type="range" id="playback-slider" min="0" max="100" value="0" disabled>
+            <div id="playback-info"></div>
+        </div>
+    </div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- State Management ---
+            const globalState = {
+                vehicles: {}, // Stores all vehicle data { id: { name, route_id, marker, lastLocation, prevLocation } }
+                selectedVehicleId: null,
+                isPlaybackActive: false,
+                playbackInterval: null,
+            };
+
+            // --- Map Initialization ---
+            const map = L.map('map').setView([17.3850, 78.4867], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }).addTo(map);
+
+            // --- UI Elements ---
+            const vehiclesUl = document.getElementById('vehicles-ul');
+            const detailsContent = document.getElementById('vehicle-details-content');
+            const historyVehicleSelect = document.getElementById('history-vehicle-select');
+            const historyDatePicker = document.getElementById('history-date-picker');
+            const playButton = document.getElementById('play-button');
+            const stopButton = document.getElementById('stop-button');
+            const playbackSlider = document.getElementById('playback-slider');
+            const playbackInfo = document.getElementById('playback-info');
+
+            // --- Custom Icon Definition ---
+            const busIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="20px" height="20px"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11C5.84 5 5.28 5.42 5.08 6.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>`;
+            const busIcon = L.divIcon({
+                html: busIconSVG,
+                className: 'custom-bus-marker',
+                iconSize: [32, 32],
+                iconAnchor: [16, 16],
+                popupAnchor: [0, -16]
+            });
+
+            // --- Main Functions ---
+
+            // Fetches initial vehicle data and populates UI lists
+            const initApp = async () => {
+                try {
+                    const response = await fetch('http://localhost:5001/api/v1/vehicles');
+                    const vehiclesData = await response.json();
+                    
+                    vehiclesUl.innerHTML = '';
+                    historyVehicleSelect.innerHTML = '<option value="">Select a Vehicle</option>';
+
+                    vehiclesData.forEach(v => {
+                        globalState.vehicles[v.id] = { ...v, marker: null, lastLocation: null, prevLocation: null };
+                        
+                        const li = document.createElement('li');
+                        li.id = `vehicle-li-${v.id}`;
+                        li.textContent = v.name;
+                        li.onclick = () => selectVehicle(v.id);
+                        vehiclesUl.appendChild(li);
+
+                        const option = document.createElement('option');
+                        option.value = v.id;
+                        option.textContent = v.name;
+                        historyVehicleSelect.appendChild(option);
+                    });
+                } catch (error) {
+                    console.error("Failed to fetch initial vehicle data:", error);
+                }
+                historyDatePicker.valueAsDate = new Date();
+            };
+
+            // Updates a vehicle's marker on the map
+            const updateVehicleMarker = (data) => {
+                const { vehicle_id, latitude, longitude } = data;
+                const vehicle = globalState.vehicles[vehicle_id];
+                if (!vehicle) return;
+
+                const latLng = [latitude, longitude];
+
+                // **SPEED FIX:** Correctly store the previous and current locations
+                vehicle.prevLocation = vehicle.lastLocation ? { ...vehicle.lastLocation } : null;
+                vehicle.lastLocation = { ...data, date: new Date() };
+
+                if (vehicle.marker) {
+                    vehicle.marker.setLatLng(latLng);
+                } else {
+                    vehicle.marker = L.marker(latLng, { icon: busIcon }).addTo(map)
+                        .bindPopup(`<b>${vehicle.name}</b>`)
+                        .on('click', () => selectVehicle(vehicle_id));
+                }
+
+                // If this vehicle is selected, update its details
+                if (globalState.selectedVehicleId === vehicle_id) {
+                    updateVehicleDetails(vehicle_id);
+                }
+            };
+
+            // Handles selecting a vehicle from map or list
+            const selectVehicle = (vehicleId) => {
+                if (globalState.isPlaybackActive) return;
+
+                if (globalState.selectedVehicleId) {
+                    document.getElementById(`vehicle-li-${globalState.selectedVehicleId}`)?.classList.remove('selected');
+                }
+                
+                globalState.selectedVehicleId = vehicleId;
+                document.getElementById(`vehicle-li-${vehicleId}`)?.classList.add('selected');
+                
+                const vehicle = globalState.vehicles[vehicleId];
+                if (vehicle && vehicle.marker) {
+                    map.panTo(vehicle.marker.getLatLng());
+                    vehicle.marker.openPopup();
+                }
+
+                updateVehicleDetails(vehicleId);
+            };
+
+            // Updates the details panel on the sidebar
+            const updateVehicleDetails = (vehicleId) => {
+                const vehicle = globalState.vehicles[vehicleId];
+                if (!vehicle || !vehicle.lastLocation) {
+                    detailsContent.innerHTML = `<p class="detail-placeholder">No location data available for this vehicle.</p>`;
+                    return;
+                }
+
+                let speed = 0;
+                const currLoc = vehicle.lastLocation;
+                const prevLoc = vehicle.prevLocation;
+                
+                // **SPEED FIX:** Calculate speed using the stored previous location
+                if (prevLoc) {
+                    const dist = map.distance(
+                        [prevLoc.latitude, prevLoc.longitude],
+                        [currLoc.latitude, currLoc.longitude]
+                    );
+                    const timeDiff = (currLoc.date.getTime() - new Date(prevLoc.timestamp).getTime()) / 1000;
+                    if (timeDiff > 0) {
+                       speed = (dist / timeDiff) * 3.6; // m/s to km/h
+                    }
+                }
+                
+                detailsContent.innerHTML = `
+                    <p><strong>Name:</strong> ${vehicle.name}</p>
+                    <p><strong>Route:</strong> ${vehicle.route_id}</p>
+                    <p><strong>Speed:</strong> ${speed.toFixed(2)} km/h</p>
+                    <p><strong>Last Update:</strong> ${new Date(currLoc.timestamp).toLocaleTimeString()}</p>
+                `;
+            };
+
+            // --- Historical Playback Functions ---
+            const playbackLayers = L.layerGroup().addTo(map);
+
+            const handlePlayback = async () => {
+                const vehicleId = historyVehicleSelect.value;
+                const date = historyDatePicker.value;
+                if (!vehicleId || !date) {
+                    alert('Please select a vehicle and a date.');
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`http://localhost:5001/api/v1/history?vehicle_id=${vehicleId}&date=${date}`);
+                    const historyData = await response.json();
+
+                    if (historyData.length < 2) {
+                        alert('Not enough historical data for playback on this date.');
+                        return;
+                    }
+                    startPlayback(historyData);
+                } catch (error) {
+                    console.error('Failed to fetch history:', error);
+                    alert('Could not fetch historical data.');
+                }
+            };
+            
+            const startPlayback = (data) => {
+                globalState.isPlaybackActive = true;
+                playButton.style.display = 'none';
+                stopButton.style.display = 'block';
+                playbackSlider.disabled = false;
+                playbackSlider.max = data.length - 1;
+
+                Object.values(globalState.vehicles).forEach(v => v.marker?.remove());
+                playbackLayers.clearLayers();
+
+                const routeCoords = data.map(p => [p.latitude, p.longitude]);
+                L.polyline(routeCoords, { color: '#999', weight: 3, dashArray: '5, 10' }).addTo(playbackLayers);
+
+                const playbackMarker = L.marker(routeCoords[0], { 
+                    icon: L.divIcon({ className: 'custom-bus-marker playback-marker', html: busIconSVG, iconSize: [32, 32], iconAnchor: [16,16] }) 
+                }).addTo(playbackLayers);
+                
+                let currentIndex = 0;
+                globalState.playbackInterval = setInterval(() => {
+                    if (currentIndex >= data.length) {
+                        stopPlayback();
+                        return;
+                    }
+                    const point = data[currentIndex];
+                    playbackMarker.setLatLng([point.latitude, point.longitude]);
+                    map.panTo([point.latitude, point.longitude]);
+                    playbackSlider.value = currentIndex;
+                    playbackInfo.textContent = `Time: ${new Date(point.timestamp).toLocaleTimeString()}`;
+                    currentIndex++;
+                }, 500);
+            };
+
+            const stopPlayback = () => {
+                clearInterval(globalState.playbackInterval);
+                globalState.isPlaybackActive = false;
+                playButton.style.display = 'block';
+                stopButton.style.display = 'none';
+                playbackSlider.disabled = true;
+                playbackSlider.value = 0;
+                playbackInfo.textContent = '';
+                
+                playbackLayers.clearLayers();
+                Object.values(globalState.vehicles).forEach(v => {
+                    if (v.marker && v.lastLocation) {
+                        v.marker.addTo(map);
+                    }
+                });
+            };
+
+            // --- Socket.IO Connection ---
+            const socket = io("http://localhost:5001");
+            socket.on('connect', () => console.log('Successfully connected to the server!'));
+            socket.on('location_update', (data) => {
+                if (!globalState.isPlaybackActive) {
+                    updateVehicleMarker(data);
+                }
+            });
+
+            // --- Event Listeners ---
+            playButton.addEventListener('click', handlePlayback);
+            stopButton.addEventListener('click', stopPlayback);
+
+            // --- App Start ---
+            initApp();
+        });
+    </script>
+</body>
+</html>
+
